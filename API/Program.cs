@@ -2,12 +2,31 @@ using Microsoft.EntityFrameworkCore;
 using Infractucture.Data;
 using Core.Interfaces;
 using API.Helpers;
+using API.Middleware;
+using Microsoft.AspNetCore.Mvc;
+using API.Errors;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddControllers();
+builder.Services.Configure<ApiBehaviorOptions>(options => 
+{
+    options.InvalidModelStateResponseFactory = ActionContext => 
+    {
+        var errors = ActionContext.ModelState.Where(e=>e.Value.Errors.Count > 0)
+        .SelectMany(x => x.Value.Errors)
+        .Select(x => x.ErrorMessage).ToArray();
+
+        var errorResponse = new ApiValidationErrorResponse
+        {
+            Errors = errors
+        };
+        return new BadRequestObjectResult(errorResponse);
+    };
+});
 
 builder.Services.AddAutoMapper(typeof(MappingProfiles));
 
@@ -20,7 +39,10 @@ builder.Services.AddDbContext<StoreContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c => 
+{
+    c.SwaggerDoc("v1", new OpenApiInfo {Title = "Skinet API", Version = "v1" });
+});
 
 var app = builder.Build();
 
@@ -47,17 +69,22 @@ using (var scope = app.Services.CreateScope())
 
 
 // Configure the HTTP request pipeline.
+app.UseMiddleware<ExceptionMiddleware>();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(c=>{c.SwaggerEndpoint("/swagger/v1/swagger.json", "SkiNet API v1");});
 }
 
+
 app.UseHttpsRedirection();
+
+app.UseStatusCodePagesWithReExecute("/errors/{0}");
 
 app.UseStaticFiles(); 
 
 app.UseAuthorization();
+
 
 app.MapControllers();
 
